@@ -1,0 +1,20 @@
+# Local venv created by `make install`
+.venv/
+
+# CIFAR-10 downloaded by torchvision via `make setup`
+data/
+
+# Curated thumbnails + manifest produced by `make setup`
+static/images/sample_*.png
+static/samples.json
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# OS / editor
+.DS_Store
+*.swp
+
+# Partial downloads (in case curl is interrupted mid-fetch)
+checkpoints/*.part

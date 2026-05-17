@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RPU — Representation-Prototype-guided Unlearning</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+<header class="site-header">
+    <div class="container header-inner">
+        <span class="brand">THE UNIVERSITY OF SYDNEY · COMP5405</span>
+        <nav class="nav">
+            <a href="#what">What is RPU</a>
+            <a href="#results">Results</a>
+            <a href="#demo">Live Demo</a>
+        </nav>
+    </div>
+</header>
+
+<!-- ============ SECTION 1: WHAT IS RPU ============ -->
+<section id="what" class="hero">
+    <div class="container">
+        <p class="eyebrow">Machine Unlearning</p>
+        <h1 class="hero-title">RPU — Representation-Prototype-guided Unlearning</h1>
+        <p class="hero-tag">Teach a trained model to forget a class — as cleanly as if it were never trained on it.</p>
+
+        <div class="two-col">
+            <div class="prose">
+                <h3>The problem</h3>
+                <p>Modern AI models memorise the training data they see. Privacy laws and compliance frameworks now demand a way to <em>remove</em> the influence of specific data from a deployed model without paying the cost of retraining from scratch.</p>
+
+                <h3>Why simple suppression isn't enough</h3>
+                <p>Many existing methods just push the forget-class accuracy to zero. The model's internal representations still carry signals about the forgotten data — leakage that membership-inference attacks and reminiscence audits can detect.</p>
+
+                <h3>The RPU idea</h3>
+                <p>RPU extracts per-class <strong>prototypes</strong> from the model's hidden layers and builds a <strong>contamination-aware target</strong> for every forget-class sample. It fuses two pieces of evidence — the original model's retained-class probabilities and the structural similarity to each retained prototype — then fine-tunes the model against these targets for only a few epochs.</p>
+            </div>
+
+            <div class="method-diagram">
+                <div class="diagram-step">
+                    <span class="step-num">I</span>
+                    <h4>Prototype Extraction &amp; Target Construction</h4>
+                    <p>Compute class-mean directions from retained-class representations. For each forget sample, fuse the original model's retained-side probabilities with structural prototype evidence into a clean zero-forget-mass target.</p>
+                    <span class="step-tag">one-time, frozen</span>
+                </div>
+                <div class="diagram-arrow">↓</div>
+                <div class="diagram-step">
+                    <span class="step-num">II</span>
+                    <h4>Fine-tune the Model</h4>
+                    <p>Optimise retained-class cross-entropy + KL divergence between the forget-sample outputs and the pre-computed targets. The model converges in minutes, not hours.</p>
+                    <span class="step-tag">few epochs</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ SECTION 2: UNLEARNING RESULTS ============ -->
+<section id="results" class="results">
+    <div class="container">
+        <p class="eyebrow">CIFAR-10 · VGGNet-16</p>
+        <h2 class="section-title">Airplane is gone. Everything else is preserved.</h2>
+
+        <div class="metric-grid">
+            {% set order = [
+                ('forget_train', 'Forget Accuracy (train)'),
+                ('retain_train', 'Retain Accuracy (train)'),
+                ('forget_test',  'Forget Accuracy (test)'),
+                ('retain_test',  'Retain Accuracy (test)'),
+                ('rtd',          'RTD — alignment to retrain'),
+                ('mia',          'MIA — membership inference')
+            ] %}
+            {% for key, title in order %}
+            {% set m = metrics[key] %}
+            <div class="metric-card">
+                <h4>{{ title }}</h4>
+                <div class="metric-row">
+                    <div class="metric-cell">
+                        <span class="metric-label">Original</span>
+                        <span class="metric-value original">
+                            {% if m.original is none %}—{% elif key in ['rtd'] %}{{ "%.3f"|format(m.original) }}{% elif key == 'mia' %}{{ "%.3f"|format(m.original) }}{% else %}{{ "%.1f"|format(m.original * 100) }}%{% endif %}
+                        </span>
+                    </div>
+                    <div class="metric-cell">
+                        <span class="metric-label">After RPU</span>
+                        <span class="metric-value rpu">
+                            {% if key in ['rtd'] %}{{ "%.3f"|format(m.rpu) }}{% elif key == 'mia' %}{{ "%.3f"|format(m.rpu) }}{% else %}{{ "%.2f"|format(m.rpu * 100) }}%{% endif %}
+                        </span>
+                    </div>
+                </div>
+                <p class="metric-reading">{{ m.reading }}</p>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="chart-block">
+            <h3 class="chart-title">Per-class test accuracy</h3>
+            <p class="chart-sub">Airplane (the forget class) drops to 0. The other nine classes stay intact.</p>
+            <div class="bar-chart">
+                {% for class_name in class_names %}
+                {% set entry = per_class[class_name] %}
+                <div class="bar-row">
+                    <span class="bar-name">{{ class_name }}</span>
+                    <div class="bar-track">
+                        <div class="bar-pair">
+                            <div class="bar bar-original" style="width: {{ entry.original * 100 }}%;">
+                                <span>{{ "%.0f"|format(entry.original * 100) }}%</span>
+                            </div>
+                            <div class="bar bar-rpu" style="width: {{ entry.rpu * 100 }}%;">
+                                <span>{{ "%.0f"|format(entry.rpu * 100) }}%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            <div class="chart-legend">
+                <span class="legend-item"><span class="swatch swatch-original"></span>Original</span>
+                <span class="legend-item"><span class="swatch swatch-rpu"></span>After RPU</span>
+            </div>
+        </div>
+
+        <p class="time-caption">
+            Unlearning runs in <strong>{{ "%.1f"|format(time_comparison.rpu) }} s</strong> — versus
+            <strong>{{ "%.1f"|format(time_comparison.retrain) }} s</strong> to retrain from scratch
+            ({{ "%.1f"|format(time_comparison.retrain / time_comparison.rpu) }}× faster).
+        </p>
+    </div>
+</section>
+
+<!-- ============ SECTION 3: LIVE DEMO ============ -->
+<section id="demo" class="demo">
+    <div class="container">
+        <p class="eyebrow">Live inference · two real checkpoints</p>
+        <h2 class="section-title">Click any image. Compare the two models.</h2>
+        <p class="section-sub">
+            The original model trained on all 10 CIFAR-10 classes vs. the same model after RPU unlearning of the
+            <strong>airplane</strong> class. Predictions update live from the real <code>.pt</code> checkpoints.
+        </p>
+
+        <!-- System status / resource monitor -->
+        <div class="status-panel" id="status-panel">
+            <div class="status-row">
+                <div class="status-tile">
+                    <span class="status-dot"></span>
+                    <div class="status-block">
+                        <span class="status-label">Device</span>
+                        <span class="status-value" id="status-device">{{ system_info.device_pretty }}</span>
+                    </div>
+                </div>
+                <div class="status-tile">
+                    <span class="status-dot status-dot-live"></span>
+                    <div class="status-block">
+                        <span class="status-label">Process RAM <em>(live)</em></span>
+                        <span class="status-value" id="status-ram">—</span>
+                    </div>
+                </div>
+                {% if system_info.device == 'mps' %}
+                <div class="status-tile">
+                    <span class="status-dot status-dot-live"></span>
+                    <div class="status-block">
+                        <span class="status-label">MPS allocated <em>(live)</em></span>
+                        <span class="status-value" id="status-mps">—</span>
+                    </div>
+                </div>
+                {% endif %}
+                <div class="status-tile">
+                    <span class="status-dot"></span>
+                    <div class="status-block">
+                        <span class="status-label">PyTorch</span>
+                        <span class="status-value">{{ system_info.pytorch_version }}</span>
+                    </div>
+                </div>
+            </div>
+            <div class="status-row status-row-models">
+                {% for model in system_info.models %}
+                <div class="status-model">
+                    <span class="status-check">✓</span>
+                    <div class="status-block">
+                        <span class="status-label">{{ model.name }} checkpoint</span>
+                        <span class="status-value">
+                            <code>{{ model.filename }}</code>
+                            · {{ model.params_label }} params
+                            · {{ "%.1f"|format(model.size_mb) }} MB
+                        </span>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="thumb-group">
+            <h4 class="group-title forget">True label: <span>airplane</span> <em>(the forgotten class)</em></h4>
+            <div class="thumb-row">
+                {% for s in samples if s.group == 'forget' %}
+                <button class="sample-card" data-id="{{ s.id }}" data-label="{{ s.true_label }}" data-url="{{ s.url }}">
+                    <img src="{{ s.url }}" alt="{{ s.true_label }}">
+                    <span class="thumb-tag">{{ s.true_label }}</span>
+                </button>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="thumb-group">
+            <h4 class="group-title retain">True label: retain classes</h4>
+            <div class="thumb-row">
+                {% for s in samples if s.group == 'retain' %}
+                <button class="sample-card" data-id="{{ s.id }}" data-label="{{ s.true_label }}" data-url="{{ s.url }}">
+                    <img src="{{ s.url }}" alt="{{ s.true_label }}">
+                    <span class="thumb-tag">{{ s.true_label }}</span>
+                </button>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="thumb-group">
+            <h4 class="group-title">Or upload your own image</h4>
+            <div class="upload-zone" id="upload-zone">
+                <input type="file" id="upload-input" accept="image/*" hidden>
+                <label for="upload-input" class="upload-label">
+                    <span class="upload-icon" aria-hidden="true">⬆</span>
+                    <div class="upload-text">
+                        <span class="upload-title">Click to choose · or drag and drop</span>
+                        <span class="upload-hint">Any JPG/PNG. The model will see it as 32×32 RGB (CIFAR-10 pipeline).</span>
+                    </div>
+                </label>
+            </div>
+        </div>
+
+        <div class="result-panel" id="result-panel">
+            <div class="result-preview">
+                <div class="preview-frame">
+                    <img id="preview-image" src="" alt="" hidden>
+                    <span id="preview-placeholder" class="preview-placeholder">Click any image to begin</span>
+                </div>
+                <div class="preview-meta">
+                    <span class="preview-label">True label</span>
+                    <span class="preview-value" id="preview-truth">—</span>
+                </div>
+            </div>
+
+            <div class="result-cards">
+                <div class="pred-card">
+                    <h4>Original Model</h4>
+                    <div class="pred-list" id="original-preds">
+                        <p class="pred-empty">Awaiting selection…</p>
+                    </div>
+                    <div class="pred-verdict" id="original-verdict" hidden>
+                        <span class="verdict-label">Final prediction</span>
+                        <div class="verdict-row">
+                            <span class="verdict-value" id="original-verdict-label">—</span>
+                            <span class="verdict-prob" id="original-verdict-prob">—</span>
+                        </div>
+                        <span class="verdict-tag" id="original-verdict-tag"></span>
+                    </div>
+                </div>
+                <div class="pred-card pred-card-rpu">
+                    <h4>After RPU</h4>
+                    <div class="pred-list" id="rpu-preds">
+                        <p class="pred-empty">Awaiting selection…</p>
+                    </div>
+                    <div class="pred-verdict" id="rpu-verdict" hidden>
+                        <span class="verdict-label">Final prediction</span>
+                        <div class="verdict-row">
+                            <span class="verdict-value" id="rpu-verdict-label">—</span>
+                            <span class="verdict-prob" id="rpu-verdict-prob">—</span>
+                        </div>
+                        <span class="verdict-tag" id="rpu-verdict-tag"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <p class="demo-hint">
+            Expected behaviour — for airplane images: the original model returns <code>airplane</code> with
+            high confidence; the RPU model redistributes mass to visually adjacent retain classes
+            (bird, ship, automobile). For retain images: both models agree.
+        </p>
+    </div>
+</section>
+
+<footer class="site-footer">
+    <div class="container">
+        <span>RPU Interactive Demo · COMP5405 Digital Media Computing · 2026 S1</span>
+    </div>
+</footer>
+
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
