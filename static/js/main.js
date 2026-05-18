@@ -1,4 +1,70 @@
 (() => {
+    // ---------- Input-viz: cycle a CIFAR-10 thumbnail every 2.4s ----------
+    const ivImage = document.getElementById("iv-image");
+    if (ivImage) {
+        const thumbs = Array.from(document.querySelectorAll(".sample-card img"));
+        const urls = thumbs.map((img) => img.getAttribute("src")).filter(Boolean);
+        if (urls.length > 0) {
+            let idx = 0;
+            ivImage.src = urls[0];
+            setInterval(() => {
+                idx = (idx + 1) % urls.length;
+                ivImage.classList.add("iv-image-fade");
+                setTimeout(() => {
+                    ivImage.src = urls[idx];
+                    ivImage.classList.remove("iv-image-fade");
+                }, 320);
+            }, 2400);
+        }
+    }
+
+    // ---------- Training viz: tick epochs every 1.1s ---------------------
+    const vtViz = document.getElementById("viz-train");
+    if (vtViz) {
+        const epochEl  = document.getElementById("vt-epoch-num");
+        const lossEl   = document.getElementById("vt-loss-num");
+        const fBar     = document.getElementById("vt-forget-bar");
+        const rBar     = document.getElementById("vt-retain-bar");
+        const fRead    = document.getElementById("vt-forget-readout");
+        const rRead    = document.getElementById("vt-retain-readout");
+        // (epoch, forget_acc, retain_acc, loss) — schematic numbers that
+        // illustrate the typical RPU trajectory: forget acc collapses to 0
+        // while retain acc stays high.
+        const STEPS = [
+            { e: 1, f: 0.92, r: 0.92, l: 3.14 },
+            { e: 2, f: 0.58, r: 0.95, l: 1.74 },
+            { e: 3, f: 0.21, r: 0.97, l: 0.86 },
+            { e: 4, f: 0.04, r: 0.98, l: 0.31 },
+            { e: 5, f: 0.00, r: 0.998, l: 0.12 },
+        ];
+        let i = 0;
+        const render = () => {
+            const s = STEPS[i % STEPS.length];
+            epochEl.textContent = s.e;
+            lossEl.textContent  = s.l.toFixed(2);
+            fBar.style.width    = (s.f * 100).toFixed(1) + "%";
+            rBar.style.width    = (s.r * 100).toFixed(1) + "%";
+            fRead.textContent   = s.f.toFixed(2);
+            rRead.textContent   = s.r.toFixed(3);
+            i++;
+        };
+        render();
+        setInterval(render, 1100);
+    }
+
+    // ---------- Flip cards: tap to toggle (in addition to CSS hover) ------
+    document.querySelectorAll(".flip-card").forEach((card) => {
+        card.addEventListener("click", () => {
+            card.classList.toggle("is-flipped");
+        });
+        card.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                card.classList.toggle("is-flipped");
+            }
+        });
+    });
+
     const cards = document.querySelectorAll(".sample-card");
     const previewImg = document.getElementById("preview-image");
     const previewPlaceholder = document.getElementById("preview-placeholder");

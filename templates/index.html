@@ -10,9 +10,10 @@
 
 <header class="site-header">
     <div class="container header-inner">
-        <span class="brand">THE UNIVERSITY OF SYDNEY · COMP5405</span>
+        <span class="brand">THE UNIVERSITY OF SYDNEY · COMP5405 · GROUP 10</span>
         <nav class="nav">
             <a href="#what">What is RPU</a>
+            <a href="#protocol">Protocol</a>
             <a href="#results">Results</a>
             <a href="#demo">Live Demo</a>
         </nav>
@@ -24,120 +25,486 @@
     <div class="container">
         <p class="eyebrow">Machine Unlearning</p>
         <h1 class="hero-title">RPU — Representation-Prototype-guided Unlearning</h1>
-        <p class="hero-tag">Teach a trained model to forget a class — as cleanly as if it were never trained on it.</p>
+        <p class="hero-tag">Make a trained model forget one class &mdash; as cleanly as a model retrained from scratch on the remaining data.</p>
 
-        <div class="two-col">
-            <div class="prose">
+        <div class="problem-row">
+            <div class="problem-card">
                 <h3>The problem</h3>
-                <p>Modern AI models memorise the training data they see. Privacy laws and compliance frameworks now demand a way to <em>remove</em> the influence of specific data from a deployed model without paying the cost of retraining from scratch.</p>
-
-                <h3>Why simple suppression isn't enough</h3>
-                <p>Many existing methods just push the forget-class accuracy to zero. The model's internal representations still carry signals about the forgotten data — leakage that membership-inference attacks and reminiscence audits can detect.</p>
-
-                <h3>The RPU idea</h3>
-                <p>RPU extracts per-class <strong>prototypes</strong> from the model's hidden layers and builds a <strong>contamination-aware target</strong> for every forget-class sample. It fuses two pieces of evidence — the original model's retained-class probabilities and the structural similarity to each retained prototype — then fine-tunes the model against these targets for only a few epochs.</p>
+                <ul class="problem-list">
+                    <li><strong>Models memorise.</strong> Deployed classifiers carry the influence of every training sample.</li>
+                    <li><strong>Naive deletion leaks.</strong> Forcing forget-class accuracy to zero still leaves a contaminated output distribution &mdash; exposed by membership-inference and reminiscence audits.</li>
+                    <li><strong>Retraining is too slow.</strong> The gold-standard fix takes hours and isn't tenable for compliance turnaround.</li>
+                </ul>
             </div>
+            <div class="problem-card problem-card-rpu">
+                <h3>Novelty</h3>
+                <ul class="problem-list">
+                    <li><strong>Contamination-aware target.</strong> Per-sample zero-forget-mass distribution, built once before fine-tuning.</li>
+                    <li><strong>Two evidence streams.</strong> Fuses the original output's retained-class preference with retained-class prototype geometry in the representation space.</li>
+                    <li><strong>Adaptive contamination defence.</strong> The fusion reduces reliance on the original posterior when it is forget-dominated or weakly supported by retained structure &mdash; closer to the retrain reference without paying the retrain cost.</li>
+                </ul>
+            </div>
+        </div>
 
-            <div class="method-diagram">
-                <div class="diagram-step">
-                    <span class="step-num">I</span>
-                    <h4>Prototype Extraction &amp; Target Construction</h4>
-                    <p>Compute class-mean directions from retained-class representations. For each forget sample, fuse the original model's retained-side probabilities with structural prototype evidence into a clean zero-forget-mass target.</p>
-                    <span class="step-tag">one-time, frozen</span>
+        <div class="terms-panel">
+            <p class="terms-tag">Three terms to know</p>
+            <div class="terms-grid">
+                <div class="term-card">
+                    <span class="term-symbol"><code>&mu;<sub>c</sub><sup>(&ell;)</sup></code></span>
+                    <h4>Prototype</h4>
+                    <p>A class's <strong>average direction</strong> in the model's feature space.</p>
                 </div>
-                <div class="diagram-arrow">↓</div>
-                <div class="diagram-step">
-                    <span class="step-num">II</span>
-                    <h4>Fine-tune the Model</h4>
-                    <p>Optimise retained-class cross-entropy + KL divergence between the forget-sample outputs and the pre-computed targets. The model converges in minutes, not hours.</p>
-                    <span class="step-tag">few epochs</span>
+                <div class="term-card">
+                    <span class="term-symbol">&oplus;</span>
+                    <h4>KL-geometric barycenter</h4>
+                    <p><strong>Weighted product</strong> of the distributions, then <strong>renormalise</strong>. Agreed classes win.</p>
+                </div>
+                <div class="term-card">
+                    <span class="term-symbol"><code>P&#771;(&middot;|x)</code></span>
+                    <h4>Zero-forget-mass target</h4>
+                    <p><strong>0</strong> for the forgotten class &middot; <code>q*</code> for the rest.</p>
                 </div>
             </div>
         </div>
-    </div>
-</section>
 
-<!-- ============ SECTION 2: UNLEARNING RESULTS ============ -->
-<section id="results" class="results">
-    <div class="container">
-        <p class="eyebrow">CIFAR-10 · VGGNet-16</p>
-        <h2 class="section-title">Airplane is gone. Everything else is preserved.</h2>
+        <h2 class="section-title section-title-tight">How does RPU work? &mdash; two evidence streams, one target</h2>
 
-        <div class="metric-grid">
-            {% set order = [
-                ('forget_train', 'Forget Accuracy (train)'),
-                ('retain_train', 'Retain Accuracy (train)'),
-                ('forget_test',  'Forget Accuracy (test)'),
-                ('retain_test',  'Retain Accuracy (test)'),
-                ('rtd',          'RTD — alignment to retrain'),
-                ('mia',          'MIA — membership inference')
-            ] %}
-            {% for key, title in order %}
-            {% set m = metrics[key] %}
-            <div class="metric-card">
-                <h4>{{ title }}</h4>
-                <div class="metric-row">
-                    <div class="metric-cell">
-                        <span class="metric-label">Original</span>
-                        <span class="metric-value original">
-                            {% if m.original is none %}—{% elif key in ['rtd'] %}{{ "%.3f"|format(m.original) }}{% elif key == 'mia' %}{{ "%.3f"|format(m.original) }}{% else %}{{ "%.1f"|format(m.original * 100) }}%{% endif %}
-                        </span>
-                    </div>
-                    <div class="metric-cell">
-                        <span class="metric-label">After RPU</span>
-                        <span class="metric-value rpu">
-                            {% if key in ['rtd'] %}{{ "%.3f"|format(m.rpu) }}{% elif key == 'mia' %}{{ "%.3f"|format(m.rpu) }}{% else %}{{ "%.2f"|format(m.rpu * 100) }}%{% endif %}
-                        </span>
-                    </div>
+        <div class="rpu-pipeline">
+            <div class="pipeline-stage pipeline-stage-input">
+                <div class="stage-header">
+                    <span class="stage-tag">Input</span>
+                    <span class="code-tag"><code>code/advance_rpu.py</code> &middot; <code>_forward_logits_and_layer_features</code></span>
                 </div>
-                <p class="metric-reading">{{ m.reading }}</p>
-            </div>
-            {% endfor %}
-        </div>
-
-        <div class="chart-block">
-            <h3 class="chart-title">Per-class test accuracy</h3>
-            <p class="chart-sub">Airplane (the forget class) drops to 0. The other nine classes stay intact.</p>
-            <div class="bar-chart">
-                {% for class_name in class_names %}
-                {% set entry = per_class[class_name] %}
-                <div class="bar-row">
-                    <span class="bar-name">{{ class_name }}</span>
-                    <div class="bar-track">
-                        <div class="bar-pair">
-                            <div class="bar bar-original" style="width: {{ entry.original * 100 }}%;">
-                                <span>{{ "%.0f"|format(entry.original * 100) }}%</span>
+                <div class="input-stage-row">
+                    <div class="input-stage-text">
+                        <div class="pipeline-input-row">
+                            <span class="pipeline-pill">Forget sample <code>x</code></span>
+                            <span class="pipeline-arrow-h">&rarr;</span>
+                            <span class="pipeline-pill pipeline-pill-frozen">Frozen original model <code>M<sub>0</sub></code></span>
+                        </div>
+                        <p class="input-caption">One frozen forward pass per sample &mdash; both evidence streams below reuse the cached signals.</p>
+                    </div>
+                    <div class="input-viz" aria-hidden="true">
+                        <div class="iv-stage">
+                            <img class="iv-image" id="iv-image" src="" alt="">
+                            <span class="iv-label"><code>x</code></span>
+                        </div>
+                        <div class="iv-flow">
+                            <span class="iv-flow-dot"></span>
+                            <span class="iv-flow-dot iv-flow-dot-2"></span>
+                        </div>
+                        <div class="iv-stage iv-stage-model">
+                            <div class="iv-slab iv-slab-1"></div>
+                            <div class="iv-slab iv-slab-2"></div>
+                            <div class="iv-slab iv-slab-3"></div>
+                            <div class="iv-slab iv-slab-4"></div>
+                            <span class="iv-label"><code>M<sub>0</sub></code></span>
+                        </div>
+                        <div class="iv-flow">
+                            <span class="iv-flow-dot iv-flow-dot-3"></span>
+                            <span class="iv-flow-dot iv-flow-dot-4"></span>
+                        </div>
+                        <div class="iv-stage">
+                            <div class="iv-bars">
+                                <span class="iv-bar iv-bar-airplane" style="--h: 72%;"></span>
+                                <span class="iv-bar" style="--h: 14%;"></span>
+                                <span class="iv-bar" style="--h: 26%;"></span>
+                                <span class="iv-bar" style="--h: 9%;"></span>
+                                <span class="iv-bar" style="--h: 18%;"></span>
+                                <span class="iv-bar" style="--h: 6%;"></span>
+                                <span class="iv-bar" style="--h: 12%;"></span>
                             </div>
-                            <div class="bar bar-rpu" style="width: {{ entry.rpu * 100 }}%;">
-                                <span>{{ "%.0f"|format(entry.rpu * 100) }}%</span>
-                            </div>
+                            <span class="iv-label"><code>P<sub>0</sub>(&middot;|x)</code></span>
                         </div>
                     </div>
                 </div>
-                {% endfor %}
             </div>
-            <div class="chart-legend">
-                <span class="legend-item"><span class="swatch swatch-original"></span>Original</span>
-                <span class="legend-item"><span class="swatch swatch-rpu"></span>After RPU</span>
+
+            <div class="pipeline-arrow-v">↓</div>
+
+            <div class="pipeline-stage pipeline-stage-evidence">
+                <div class="stage-header">
+                    <span class="stage-tag">Two parallel evidence streams</span>
+                    <span class="code-tag"><code>code/advance_rpu.py</code> &middot; <code>_build_retained_layer_prototypes</code> + <code>_precompute_ehca_rpu_targets</code></span>
+                </div>
+                <p class="evidence-hint">Hover or tap a card &rarr; it flips to a live visualisation of the actual computation.</p>
+                <div class="pipeline-evidence-row">
+
+                    <div class="flip-card" data-flip="output" tabindex="0">
+                        <div class="flip-card-inner">
+                            <div class="flip-card-face flip-card-front evidence-box">
+                                <span class="flip-hint">&#x21bb; hover / tap</span>
+                                <h4>1 &middot; Output evidence</h4>
+                                <p class="evidence-tagline">What does <code>M<sub>0</sub></code>'s output say after we delete the forgotten classes?</p>
+                                <ul class="evidence-list">
+                                    <li><strong>Retained-side anchor <code>t(&middot;|x)</code></strong> &mdash; take the original probabilities <code>P<sub>0</sub>(&middot;|x)</code>, drop the forgotten classes, renormalise the rest. Preserves fine-grained retained-class preferences but inherits any contamination from the forgotten classes that were competing in the output.</li>
+                                    <li><strong>Forgotten mass <code>m<sub>f</sub>(x)</code></strong> &mdash; how much probability the original model placed on the forgotten classes. A larger <code>m<sub>f</sub></code> means the anchor was renormalised from less retained mass &mdash; less trustworthy.</li>
+                                </ul>
+                            </div>
+                            <div class="flip-card-face flip-card-back evidence-box">
+                                <span class="flip-hint flip-hint-back">&#x21bb; flip back</span>
+                                <h4>Drop &amp; renormalise</h4>
+                                <div class="viz-output" aria-hidden="true">
+                                    <div class="vo-row vo-row-forget"><span class="vo-name">airplane</span><div class="vo-track"><div class="vo-bar vo-bar-forget"></div></div><span class="vo-strike">&#x2715; drop</span></div>
+                                    <div class="vo-row"><span class="vo-name">bird</span><div class="vo-track"><div class="vo-bar" style="--w0: 11%; --w1: 26%;"></div></div></div>
+                                    <div class="vo-row"><span class="vo-name">ship</span><div class="vo-track"><div class="vo-bar" style="--w0: 9%; --w1: 22%;"></div></div></div>
+                                    <div class="vo-row"><span class="vo-name">automobile</span><div class="vo-track"><div class="vo-bar" style="--w0: 6%; --w1: 14%;"></div></div></div>
+                                    <div class="vo-row"><span class="vo-name">cat</span><div class="vo-track"><div class="vo-bar" style="--w0: 3%; --w1: 7%;"></div></div></div>
+                                    <div class="vo-row"><span class="vo-name">deer</span><div class="vo-track"><div class="vo-bar" style="--w0: 3%; --w1: 7%;"></div></div></div>
+                                    <div class="vo-row"><span class="vo-name">dog</span><div class="vo-track"><div class="vo-bar" style="--w0: 2%; --w1: 5%;"></div></div></div>
+                                    <div class="vo-row"><span class="vo-name">frog</span><div class="vo-track"><div class="vo-bar" style="--w0: 2%; --w1: 5%;"></div></div></div>
+                                    <div class="vo-row"><span class="vo-name">horse</span><div class="vo-track"><div class="vo-bar" style="--w0: 3%; --w1: 7%;"></div></div></div>
+                                    <div class="vo-row"><span class="vo-name">truck</span><div class="vo-track"><div class="vo-bar" style="--w0: 11%; --w1: 26%;"></div></div></div>
+                                </div>
+                                <p class="viz-caption"><strong>P<sub>0</sub>(&middot;|x)</strong> &rarr; drop forgotten class &rarr; renormalise &rarr; <strong>t(&middot;|x)</strong></p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flip-card" data-flip="structural" tabindex="0">
+                        <div class="flip-card-inner">
+                            <div class="flip-card-face flip-card-front evidence-box evidence-box-alt">
+                                <span class="flip-hint">&#x21bb; hover / tap</span>
+                                <h4>2 &middot; Structural evidence</h4>
+                                <p class="evidence-tagline">Where does <code>x</code> sit among the retained classes in the model's representation space?</p>
+                                <ul class="evidence-list">
+                                    <li><strong>Retained prototypes <code>&mu;<sub>c</sub><sup>(&ell;)</sup></code></strong> &mdash; per-layer, per-class mean directions in <code>M<sub>0</sub></code>'s features. Cached once, frozen throughout unlearning.</li>
+                                    <li><strong>Hierarchical structural posterior <code>a<sup>H</sup>(&middot;|x)</code></strong> &mdash; for every layer, softmax <code>x</code>'s similarity to each retained prototype, then KL-geometrically fuse the layers, weighting each by global separation <code>S<sub>&ell;</sub></code> + local affinity <code>U<sub>&ell;</sub>(x)</code>.</li>
+                                    <li><strong>Structural validity <code>V(x)</code></strong> &mdash; whether the layers driving the fusion also show positive retained-prototype affinity for <code>x</code>. Gates how much to trust the structural branch.</li>
+                                </ul>
+                            </div>
+                            <div class="flip-card-face flip-card-back evidence-box evidence-box-alt">
+                                <span class="flip-hint flip-hint-back">&#x21bb; flip back</span>
+                                <h4>Sample &rarr; prototypes &rarr; allocation</h4>
+                                <div class="viz-structural" aria-hidden="true">
+                                    <svg class="vs-svg" viewBox="0 0 240 150" preserveAspectRatio="xMidYMid meet">
+                                        <line class="vs-line vs-line-hi" x1="120" y1="78" x2="50"  y2="32"></line>
+                                        <line class="vs-line vs-line-md" x1="120" y1="78" x2="118" y2="18"></line>
+                                        <line class="vs-line vs-line-md" x1="120" y1="78" x2="190" y2="32"></line>
+                                        <line class="vs-line vs-line-lo" x1="120" y1="78" x2="210" y2="78"></line>
+                                        <line class="vs-line vs-line-lo" x1="120" y1="78" x2="190" y2="124"></line>
+                                        <line class="vs-line vs-line-lo" x1="120" y1="78" x2="118" y2="138"></line>
+                                        <line class="vs-line vs-line-lo" x1="120" y1="78" x2="50"  y2="124"></line>
+                                        <line class="vs-line vs-line-md" x1="120" y1="78" x2="30"  y2="78"></line>
+                                        <line class="vs-line vs-line-lo" x1="120" y1="78" x2="78"  y2="78"></line>
+                                        <circle class="vs-proto vs-proto-hi" cx="50"  cy="32" r="8"></circle>
+                                        <circle class="vs-proto vs-proto-md" cx="118" cy="18" r="8"></circle>
+                                        <circle class="vs-proto vs-proto-md" cx="190" cy="32" r="8"></circle>
+                                        <circle class="vs-proto"             cx="210" cy="78" r="7"></circle>
+                                        <circle class="vs-proto"             cx="190" cy="124" r="7"></circle>
+                                        <circle class="vs-proto"             cx="118" cy="138" r="7"></circle>
+                                        <circle class="vs-proto"             cx="50"  cy="124" r="7"></circle>
+                                        <circle class="vs-proto vs-proto-md" cx="30"  cy="78" r="8"></circle>
+                                        <circle class="vs-proto"             cx="78"  cy="78" r="7"></circle>
+                                        <circle class="vs-x-halo" cx="120" cy="78" r="16"></circle>
+                                        <circle class="vs-x-core" cx="120" cy="78" r="9"></circle>
+                                        <text class="vs-x-label" x="120" y="82" text-anchor="middle">x</text>
+                                        <text class="vs-proto-label" x="50"  y="13" text-anchor="middle">bird</text>
+                                        <text class="vs-proto-label" x="190" y="13" text-anchor="middle">ship</text>
+                                        <text class="vs-proto-label" x="30"  y="63" text-anchor="middle">truck</text>
+                                    </svg>
+                                    <div class="vs-bars">
+                                        <div class="vs-bar-col"><span class="vs-bar vs-bar-hi" style="--h: 100%;"></span><span class="vs-bar-name">bird</span></div>
+                                        <div class="vs-bar-col"><span class="vs-bar vs-bar-md" style="--h: 60%;"></span><span class="vs-bar-name">ship</span></div>
+                                        <div class="vs-bar-col"><span class="vs-bar vs-bar-md" style="--h: 55%;"></span><span class="vs-bar-name">truck</span></div>
+                                        <div class="vs-bar-col"><span class="vs-bar vs-bar-md" style="--h: 45%;"></span><span class="vs-bar-name">auto</span></div>
+                                        <div class="vs-bar-col"><span class="vs-bar" style="--h: 18%;"></span><span class="vs-bar-name">cat</span></div>
+                                        <div class="vs-bar-col"><span class="vs-bar" style="--h: 14%;"></span><span class="vs-bar-name">deer</span></div>
+                                        <div class="vs-bar-col"><span class="vs-bar" style="--h: 12%;"></span><span class="vs-bar-name">dog</span></div>
+                                        <div class="vs-bar-col"><span class="vs-bar" style="--h: 14%;"></span><span class="vs-bar-name">frog</span></div>
+                                        <div class="vs-bar-col"><span class="vs-bar" style="--h: 16%;"></span><span class="vs-bar-name">horse</span></div>
+                                    </div>
+                                </div>
+                                <p class="viz-caption">cosine sim &rarr; softmax &rarr; KL-fuse layers &rarr; <strong><code>a<sup>H</sup>(&middot;|x)</code></strong></p>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <div class="pipeline-arrow-v">↓</div>
+
+            <div class="pipeline-stage pipeline-stage-fuse">
+                <div class="stage-header">
+                    <span class="stage-tag">Contamination-aware fusion</span>
+                    <span class="code-tag"><code>code/advance_rpu.py</code> &middot; <code>_precompute_ehca_rpu_targets</code></span>
+                </div>
+                <h4>Two-source KL-geometric barycenter</h4>
+                <p class="fuse-formula">
+                    <code>q*(c|x) &prop; t(c|x)<sup>&alpha;(x)</sup> &middot; a<sup>H</sup>(c|x)<sup>1&minus;&alpha;(x)</sup></code>
+                    &nbsp;with&nbsp;
+                    <code>&alpha;(x) = &kappa; / ( m<sub>f</sub>(x) &middot; V(x) + &kappa; )</code>
+                </p>
+                <div class="viz-kl" aria-hidden="true">
+                    <div class="kl-trio">
+                        <div class="kl-source">
+                            <span class="kl-label"><code>t(&middot;|x)</code></span>
+                            <div class="kl-bars">
+                                <span class="kl-bar kl-bar-t" style="--h: 70%;"></span>
+                                <span class="kl-bar kl-bar-t" style="--h: 42%;"></span>
+                                <span class="kl-bar kl-bar-t" style="--h: 16%;"></span>
+                                <span class="kl-bar kl-bar-t" style="--h: 12%;"></span>
+                            </div>
+                            <div class="kl-names"><span>bird</span><span>ship</span><span>truck</span><span>auto</span></div>
+                        </div>
+                        <span class="kl-op">&times;</span>
+                        <div class="kl-source">
+                            <span class="kl-label"><code>a<sup>H</sup>(&middot;|x)</code></span>
+                            <div class="kl-bars">
+                                <span class="kl-bar kl-bar-a" style="--h: 56%;"></span>
+                                <span class="kl-bar kl-bar-a" style="--h: 14%;"></span>
+                                <span class="kl-bar kl-bar-a" style="--h: 32%;"></span>
+                                <span class="kl-bar kl-bar-a" style="--h: 20%;"></span>
+                            </div>
+                            <div class="kl-names"><span>bird</span><span>ship</span><span>truck</span><span>auto</span></div>
+                        </div>
+                        <span class="kl-op">=</span>
+                        <div class="kl-source kl-source-result">
+                            <span class="kl-label"><code>q*(&middot;|x)</code></span>
+                            <div class="kl-bars">
+                                <span class="kl-bar kl-bar-q" style="--h: 86%;"></span>
+                                <span class="kl-bar kl-bar-q" style="--h: 22%;"></span>
+                                <span class="kl-bar kl-bar-q" style="--h: 20%;"></span>
+                                <span class="kl-bar kl-bar-q" style="--h: 12%;"></span>
+                            </div>
+                            <div class="kl-names"><span>bird</span><span>ship</span><span>truck</span><span>auto</span></div>
+                        </div>
+                    </div>
+                    <p class="kl-mini-caption">Weighted geometric mean &rarr; the class <em>both</em> sources agree on is reinforced; disagreed classes are suppressed.</p>
+                </div>
+                <p class="fuse-reading">
+                    Lean on structural evidence <em>only</em> when the original output is forget-dominated <em>and</em> the prototype evidence is locally valid. Otherwise, trust the original retained-side preferences.
+                </p>
+            </div>
+
+            <div class="pipeline-arrow-v">↓</div>
+
+            <div class="pipeline-stage pipeline-stage-target">
+                <div class="stage-header">
+                    <span class="stage-tag">Zero-forget-mass target</span>
+                    <span class="code-tag"><code>code/advance_rpu.py</code> &middot; <code>_make_target_tensor</code></span>
+                </div>
+                <h4><code>P&#771;(&middot;|x)</code></h4>
+                <p>Forgotten classes get probability <strong>0</strong>; retained classes get <code>q*(&middot;|x)</code>. This is the fixed target each forget-sample is trained against.</p>
+                <div class="viz-pf" aria-hidden="true">
+                    <div class="pf-bars">
+                        <div class="pf-bar-col pf-bar-col-zero"><span class="pf-bar-x">&times;</span><span class="pf-bar pf-bar-zero"></span><span class="pf-bar-name">airplane</span></div>
+                        <div class="pf-bar-col"><span class="pf-bar" style="--h: 86%;"></span><span class="pf-bar-name">bird</span></div>
+                        <div class="pf-bar-col"><span class="pf-bar" style="--h: 22%;"></span><span class="pf-bar-name">ship</span></div>
+                        <div class="pf-bar-col"><span class="pf-bar" style="--h: 36%;"></span><span class="pf-bar-name">auto</span></div>
+                        <div class="pf-bar-col"><span class="pf-bar" style="--h: 10%;"></span><span class="pf-bar-name">cat</span></div>
+                        <div class="pf-bar-col"><span class="pf-bar" style="--h: 8%;"></span><span class="pf-bar-name">deer</span></div>
+                        <div class="pf-bar-col"><span class="pf-bar" style="--h: 6%;"></span><span class="pf-bar-name">dog</span></div>
+                        <div class="pf-bar-col"><span class="pf-bar" style="--h: 7%;"></span><span class="pf-bar-name">frog</span></div>
+                        <div class="pf-bar-col"><span class="pf-bar" style="--h: 8%;"></span><span class="pf-bar-name">horse</span></div>
+                        <div class="pf-bar-col"><span class="pf-bar" style="--h: 26%;"></span><span class="pf-bar-name">truck</span></div>
+                    </div>
+                    <p class="pf-caption">Forgotten class is locked to <strong>0</strong>; mass is redistributed across retained classes by <code>q*</code>.</p>
+                </div>
+            </div>
+
+            <div class="pipeline-arrow-v">↓</div>
+
+            <div class="pipeline-stage pipeline-stage-train">
+                <div class="stage-header">
+                    <span class="stage-tag">Stage II: short fine-tune</span>
+                    <span class="code-tag"><code>code/advance_rpu.py</code> &middot; <code>_train_local_rpu</code></span>
+                </div>
+                <h4>Train <code>M<sub>u</sub></code> from <code>M<sub>0</sub></code> &mdash; only a few epochs</h4>
+                <p class="train-formula">
+                    <code>min &nbsp; &Eopf;<sub>D<sub>r</sub></sub>[ &minus;log p<sub>u</sub>(y|x) ]&nbsp;+&nbsp;&lambda;<sub>f</sub> &middot; &Eopf;<sub>D<sub>f</sub></sub>[ KL( P&#771;(&middot;|x) &Vert; P<sub>u</sub>(&middot;|x) ) ]</code>
+                </p>
+                <div class="viz-train" id="viz-train" aria-hidden="true">
+                    <div class="vt-row">
+                        <span class="vt-label">Forget acc</span>
+                        <div class="vt-track"><div class="vt-bar vt-bar-forget" id="vt-forget-bar"></div></div>
+                        <span class="vt-readout" id="vt-forget-readout">0.92</span>
+                    </div>
+                    <div class="vt-row">
+                        <span class="vt-label">Retain acc</span>
+                        <div class="vt-track"><div class="vt-bar vt-bar-retain" id="vt-retain-bar"></div></div>
+                        <span class="vt-readout" id="vt-retain-readout">0.92</span>
+                    </div>
+                    <div class="vt-epoch">
+                        <span class="vt-epoch-tag">epoch</span>
+                        <span class="vt-epoch-num" id="vt-epoch-num">1</span>
+                        <span class="vt-epoch-total">/ 5</span>
+                        <span class="vt-loss-tag">loss</span>
+                        <span class="vt-loss-num" id="vt-loss-num">3.14</span>
+                    </div>
+                </div>
+                <p class="train-reading">
+                    Preserve supervised performance on retained data <em>and</em> push forget-sample outputs onto the pre-computed zero-forget-mass targets.
+                </p>
             </div>
         </div>
-
-        <p class="time-caption">
-            Unlearning runs in <strong>{{ "%.1f"|format(time_comparison.rpu) }} s</strong> — versus
-            <strong>{{ "%.1f"|format(time_comparison.retrain) }} s</strong> to retrain from scratch
-            ({{ "%.1f"|format(time_comparison.retrain / time_comparison.rpu) }}× faster).
-        </p>
     </div>
 </section>
 
-<!-- ============ SECTION 3: LIVE DEMO ============ -->
+<!-- ============ SECTION 2: TRAINING & EVALUATION PROTOCOL ============ -->
+<section id="protocol" class="protocol">
+    <div class="container">
+        <p class="eyebrow">Section 2</p>
+        <h2 class="section-title">Training &amp; Evaluation Protocol</h2>
+        <p class="section-sub">
+            Class-level unlearning on CIFAR-10 with VGGNet-16 (also CIFAR-100 / ResNet-34 in the paper).
+            All numbers in the next section are averaged over <strong>3 forget classes &times; 5 seeds = 15 runs</strong>.
+        </p>
+
+        <div class="protocol-grid">
+            <div class="protocol-card">
+                <span class="protocol-tag">Original model</span>
+                <h4>Trained on the full training set</h4>
+                <ul class="protocol-list">
+                    {% for row in training_recipe %}
+                    <li><span>{{ row.k }}</span><strong>{{ row.v }}</strong></li>
+                    {% endfor %}
+                </ul>
+            </div>
+
+            <div class="protocol-card protocol-card-rpu">
+                <span class="protocol-tag protocol-tag-rpu">RPU unlearning</span>
+                <h4>Fine-tuned from the original checkpoint</h4>
+                <ul class="protocol-list">
+                    {% for row in rpu_hyperparams %}
+                    <li><span>{{ row.k }}</span><strong>{{ row.v }}</strong></li>
+                    {% endfor %}
+                </ul>
+            </div>
+
+            <div class="protocol-card">
+                <span class="protocol-tag">Forget protocol</span>
+                <h4>What counts as a successful unlearn?</h4>
+                <ul class="protocol-list protocol-list-prose">
+                    <li><span>Forget set <code>D<sub>f</sub></code></span><strong>all training samples of the chosen class</strong></li>
+                    <li><span>Retain set <code>D<sub>r</sub></code></span><strong>everything else</strong></li>
+                    <li><span>Retrain reference</span><strong>trained from scratch on <code>D<sub>r</sub></code> only (gold standard, eval-only)</strong></li>
+                    <li><span>Same start</span><strong>all methods initialised from the same original checkpoint</strong></li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="metric-legend">
+            <h4 class="metric-legend-title">Metrics</h4>
+            <div class="metric-legend-grid">
+                {% for m in metrics_legend %}
+                <div class="metric-legend-item">
+                    <span class="legend-key">{{ m.key | safe }}</span>
+                    <span class="legend-desc">{{ m.desc }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ SECTION 3: RESULTS FROM THE PAPER ============ -->
+<section id="results" class="results">
+    <div class="container">
+        <p class="eyebrow">Section 3 · CIFAR-10 · VGGNet-16</p>
+        <h2 class="section-title">RPU forgets cleanly and stays closest to the retrain reference.</h2>
+        <p class="section-sub">
+            Main results table from the paper. Lower is better for UA, TUA, Time; higher is better for RA, TRA, RTD; closer to 0.5 is better for MIA.
+            <strong>Bold</strong> marks the unique best among unlearning methods (excluding the reference rows).
+        </p>
+
+        <div class="results-table-wrap">
+            <table class="results-table">
+                <thead>
+                    <tr>
+                        <th class="col-method">Method</th>
+                        <th>UA&nbsp;&darr;</th>
+                        <th>RA&nbsp;&uarr;</th>
+                        <th>TUA&nbsp;&darr;</th>
+                        <th>TRA&nbsp;&uarr;</th>
+                        <th>RTD&nbsp;&uarr;</th>
+                        <th>MIA</th>
+                        <th>Time(s)&nbsp;&darr;</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in main_table %}
+                    <tr class="row-{{ row.type }}">
+                        <td class="col-method">
+                            {% if row.type == 'ours' %}<strong>{{ row.method }}</strong>{% else %}{{ row.method }}{% endif %}
+                            {% if row.type == 'reference' %}<span class="row-tag">reference</span>{% endif %}
+                            {% if row.type == 'ours' %}<span class="row-tag row-tag-ours">ours</span>{% endif %}
+                        </td>
+                        {% for cell in [row.ua, row.ra, row.tua, row.tra, row.rtd, row.mia, row.time] %}
+                        <td>
+                            {% if cell is none %}
+                                <span class="cell-na">&mdash;</span>
+                            {% elif cell.bold %}
+                                <strong>{{ cell.fmt }}</strong>
+                            {% else %}
+                                {{ cell.fmt }}
+                            {% endif %}
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="rtd-block">
+            <div class="rtd-text">
+                <h3>Why RTD matters</h3>
+                <p>
+                    Standard accuracy can be fooled: every well-tuned method drives forget-test accuracy to near 0. <strong>RTD</strong> measures how closely the unlearned model's <em>full</em> output distribution on forget-class inputs matches a retrain reference (averaged over 10 retrains). <code>RTD = 1</code> is exact retrain behavior; values near 0 or negative mean no improvement or movement away from the retrain reference.
+                </p>
+                <p class="rtd-headline">
+                    RPU is the only method that lands close to the retrain reference on this audit.
+                </p>
+            </div>
+            <div class="rtd-chart">
+                <h4 class="rtd-chart-title">RTD on CIFAR-10 &middot; higher is better</h4>
+                {% for row in rtd_ranking %}
+                <div class="rtd-row{% if row.is_ours %} rtd-row-ours{% endif %}{% if row.is_reference %} rtd-row-reference{% endif %}">
+                    <span class="rtd-name">{{ row.method }}</span>
+                    <div class="rtd-track">
+                        <div class="rtd-bar{% if row.rtd < 0 %} rtd-bar-negative{% endif %}" style="width: {{ row.width }}%; margin-left: {{ row.offset }}%;"></div>
+                    </div>
+                    <span class="rtd-value">{{ row.rtd_fmt }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="findings-row">
+            <div class="finding-card">
+                <span class="finding-num">6.4&times;</span>
+                <p>RPU takes <strong>{{ time_comparison.rpu }}&nbsp;s</strong> &mdash; vs <strong>{{ time_comparison.retrain }}&nbsp;s</strong> to retrain from scratch.</p>
+            </div>
+            <div class="finding-card">
+                <span class="finding-num">0.499</span>
+                <p>MIA score is essentially random-guess level &mdash; the unlearned model is statistically indistinguishable from one that never saw the forgotten class.</p>
+            </div>
+            <div class="finding-card">
+                <span class="finding-num">+0.17</span>
+                <p>RTD gap over the next-best baseline (SalUn at 0.803) &mdash; the structural branch removes contamination the others leave behind.</p>
+            </div>
+        </div>
+
+        <div class="other-findings">
+            <h3>Other findings (in the report)</h3>
+            <ul class="findings-list">
+                {% for note in extra_findings %}
+                <li>{{ note | safe }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+</section>
+
+<!-- ============ SECTION 4: LIVE DEMO ============ -->
 <section id="demo" class="demo">
     <div class="container">
-        <p class="eyebrow">Live inference · two real checkpoints</p>
-        <h2 class="section-title">Click any image. Compare the two models.</h2>
+        <p class="eyebrow">Section 4 · Live inference</p>
+        <h2 class="section-title">See it run &mdash; two real checkpoints, side by side.</h2>
         <p class="section-sub">
-            The original model trained on all 10 CIFAR-10 classes vs. the same model after RPU unlearning of the
-            <strong>airplane</strong> class. Predictions update live from the real <code>.pt</code> checkpoints.
+            One shipped <code>original_model.pt</code> and one shipped <code>advance_RPU.pt</code>, loaded once at startup. Click a thumbnail or drop in your own image &mdash; predictions stream back from both models on this machine.
         </p>
 
         <!-- System status / resource monitor -->
@@ -154,7 +521,7 @@
                     <span class="status-dot status-dot-live"></span>
                     <div class="status-block">
                         <span class="status-label">Process RAM <em>(live)</em></span>
-                        <span class="status-value" id="status-ram">—</span>
+                        <span class="status-value" id="status-ram">&mdash;</span>
                     </div>
                 </div>
                 {% if system_info.device == 'mps' %}
@@ -162,7 +529,7 @@
                     <span class="status-dot status-dot-live"></span>
                     <div class="status-block">
                         <span class="status-label">MPS allocated <em>(live)</em></span>
-                        <span class="status-value" id="status-mps">—</span>
+                        <span class="status-value" id="status-mps">&mdash;</span>
                     </div>
                 </div>
                 {% endif %}
@@ -177,13 +544,13 @@
             <div class="status-row status-row-models">
                 {% for model in system_info.models %}
                 <div class="status-model">
-                    <span class="status-check">✓</span>
+                    <span class="status-check">&check;</span>
                     <div class="status-block">
                         <span class="status-label">{{ model.name }} checkpoint</span>
                         <span class="status-value">
                             <code>{{ model.filename }}</code>
-                            · {{ model.params_label }} params
-                            · {{ "%.1f"|format(model.size_mb) }} MB
+                            &middot; {{ model.params_label }} params
+                            &middot; {{ "%.1f"|format(model.size_mb) }} MB
                         </span>
                     </div>
                 </div>
@@ -220,10 +587,10 @@
             <div class="upload-zone" id="upload-zone">
                 <input type="file" id="upload-input" accept="image/*" hidden>
                 <label for="upload-input" class="upload-label">
-                    <span class="upload-icon" aria-hidden="true">⬆</span>
+                    <span class="upload-icon" aria-hidden="true">&uarr;</span>
                     <div class="upload-text">
-                        <span class="upload-title">Click to choose · or drag and drop</span>
-                        <span class="upload-hint">Any JPG/PNG. The model will see it as 32×32 RGB (CIFAR-10 pipeline).</span>
+                        <span class="upload-title">Click to choose &middot; or drag and drop</span>
+                        <span class="upload-hint">Any JPG/PNG. The model will see it as 32&times;32 RGB (CIFAR-10 pipeline).</span>
                     </div>
                 </label>
             </div>
@@ -237,7 +604,7 @@
                 </div>
                 <div class="preview-meta">
                     <span class="preview-label">True label</span>
-                    <span class="preview-value" id="preview-truth">—</span>
+                    <span class="preview-value" id="preview-truth">&mdash;</span>
                 </div>
             </div>
 
@@ -245,13 +612,13 @@
                 <div class="pred-card">
                     <h4>Original Model</h4>
                     <div class="pred-list" id="original-preds">
-                        <p class="pred-empty">Awaiting selection…</p>
+                        <p class="pred-empty">Awaiting selection&hellip;</p>
                     </div>
                     <div class="pred-verdict" id="original-verdict" hidden>
                         <span class="verdict-label">Final prediction</span>
                         <div class="verdict-row">
-                            <span class="verdict-value" id="original-verdict-label">—</span>
-                            <span class="verdict-prob" id="original-verdict-prob">—</span>
+                            <span class="verdict-value" id="original-verdict-label">&mdash;</span>
+                            <span class="verdict-prob" id="original-verdict-prob">&mdash;</span>
                         </div>
                         <span class="verdict-tag" id="original-verdict-tag"></span>
                     </div>
@@ -259,13 +626,13 @@
                 <div class="pred-card pred-card-rpu">
                     <h4>After RPU</h4>
                     <div class="pred-list" id="rpu-preds">
-                        <p class="pred-empty">Awaiting selection…</p>
+                        <p class="pred-empty">Awaiting selection&hellip;</p>
                     </div>
                     <div class="pred-verdict" id="rpu-verdict" hidden>
                         <span class="verdict-label">Final prediction</span>
                         <div class="verdict-row">
-                            <span class="verdict-value" id="rpu-verdict-label">—</span>
-                            <span class="verdict-prob" id="rpu-verdict-prob">—</span>
+                            <span class="verdict-value" id="rpu-verdict-label">&mdash;</span>
+                            <span class="verdict-prob" id="rpu-verdict-prob">&mdash;</span>
                         </div>
                         <span class="verdict-tag" id="rpu-verdict-tag"></span>
                     </div>
@@ -274,16 +641,14 @@
         </div>
 
         <p class="demo-hint">
-            Expected behaviour — for airplane images: the original model returns <code>airplane</code> with
-            high confidence; the RPU model redistributes mass to visually adjacent retain classes
-            (bird, ship, automobile). For retain images: both models agree.
+            Expected behaviour &mdash; airplane images: the original model says <code>airplane</code> with high confidence; the RPU model redistributes mass to visually adjacent retain classes (bird, ship, automobile). Retain images: both models agree.
         </p>
     </div>
 </section>
 
 <footer class="site-footer">
     <div class="container">
-        <span>RPU Interactive Demo · COMP5405 Digital Media Computing · 2026 S1</span>
+        <span>RPU Interactive Demo &middot; COMP5405 Digital Media Computing &middot; 2026 S1</span>
     </div>
 </footer>
 
